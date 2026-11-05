@@ -40,7 +40,7 @@ jobs:
           CXX: ${{ matrix.compiler }}
         run: ./scripts/build-local.sh
 
-  # The whole app (JUCE) on Linux and macOS: it must build and pass its self-test. Windows is built by release.yml.
+  # The whole app (JUCE) on Linux and macOS: it must build and pass its self-test.
   app:
     name: App (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -112,4 +112,55 @@ jobs:
         with:
           name: editor-pictures-${{ runner.os }}
           path: editor-pictures
+          retention-days: 14
+
+  # Compile and link the Windows API with MSVC on every PR, then exercise its native discovery/DACL path.
+  windows:
+    name: App and remote control (Windows, MSVC)
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: JUCE (checksum verified)
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'juce.tar.gz'
+          $juce = Join-Path $env:RUNNER_TEMP 'juce'
+          Invoke-WebRequest "https://github.com/juce-framework/JUCE/archive/refs/tags/$env:JUCE_VERSION.tar.gz" -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $env:JUCE_SHA256) { throw 'JUCE checksum mismatch' }
+          New-Item -ItemType Directory -Force $juce | Out-Null
+          tar xzf $archive -C $juce --strip-components 1
+          if ($LASTEXITCODE -ne 0) { throw "JUCE extraction failed ($LASTEXITCODE)" }
+          Remove-Item $archive
+
+      - name: Configure
+        shell: pwsh
+        env:
+          CXXFLAGS: /bigobj /utf-8
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 "-DFETCHCONTENT_SOURCE_DIR_JUCE=$env:RUNNER_TEMP/juce"
+
+      - name: Build app and remote control tests
+        shell: pwsh
+        run: cmake --build build --config Release --target LYNX lynx_remote_instrument_tests lynx_remote_playlist_tests lynx_remote_project_tests --parallel 2
+
+      - name: Remote control regressions
+        shell: pwsh
+        run: ctest --test-dir build -C Release --output-on-failure --no-tests=error -R '^lynx_remote_.*_tests$'
+
+      - name: Self-test
+        shell: pwsh
+        run: |
+          $p = Start-Process build\LYNX_artefacts\Release\LYNX.exe -ArgumentList '--selftest', "$PWD\selftest.txt", "$PWD\selftest-demo.lynx" -Wait -PassThru
+          Get-Content selftest.txt
+          if ($p.ExitCode -ne 0 -or -not (Select-String -Path selftest.txt -Pattern '^result=OK' -Quiet)) { throw "self-test failed (exit $($p.ExitCode))" }
+
+      - name: Upload Windows test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-test-reports
+          path: |
+            selftest.txt
+            build/Testing/Temporary/LastTest.log
           retention-days: 14

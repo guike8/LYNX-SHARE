@@ -1,5 +1,6 @@
 #pragma once
 
+#include "engine/RemoteJsonLimits.h"
 #include <juce_core/juce_core.h>
 #include <stdexcept>
 #include <vector>
@@ -201,4 +202,22 @@ inline void writeDiscovery (const juce::File& file, const juce::String& json)
     if (! ok) { ::unlink (pattern.c_str()); fail ("Cannot publish private remote-control discovery file"); }
 }
 #endif
+
+inline void removeDiscoveryIfOwned (const juce::File& file, const juce::String& token)
+{
+    checkPrivateFile (file);
+    auto input = file.createInputStream();
+    if (input == nullptr) return;
+    // Read a bounded amount even if the file changes after its permissions are
+    // checked. Cleanup must not feed untrusted nesting to JUCE's recursive parser.
+    constexpr std::size_t maxBytes = 16384;
+    juce::MemoryBlock bytes;
+    input->readIntoMemoryBlock (bytes, maxBytes + 1);
+    input.reset(); // Windows must close the reader before deleting the record.
+    if (bytes.getSize() == 0 || bytes.getSize() > maxBytes
+        || ! remote_json::withinNestingLimit ({ static_cast<const char*> (bytes.getData()), bytes.getSize() }, 8))
+        return;
+    const auto record = juce::JSON::parse (juce::String::fromUTF8 (static_cast<const char*> (bytes.getData()), (int) bytes.getSize()));
+    if (record["token"].toString() == token) file.deleteFile();
+}
 }

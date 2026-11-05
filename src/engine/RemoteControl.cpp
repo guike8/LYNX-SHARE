@@ -450,12 +450,7 @@ struct RemoteControl::Impl final : juce::Thread
         // A second custom LYNX may have replaced this file; never remove its record.
         try
         {
-            remote_files::checkPrivateFile (discovery);
-            if (discovery.getSize() <= 16384)
-            {
-                const auto record = juce::JSON::parse (discovery.loadFileAsString());
-                if (record["token"].toString() == token) discovery.deleteFile();
-            }
+            remote_files::removeDiscoveryIfOwned (discovery, token);
         }
         catch (...) {}
     }

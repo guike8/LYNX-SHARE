@@ -157,6 +157,10 @@ void jsonNesting()
     using remote_json::withinNestingLimit;
     check (withinNestingLimit (std::string (64, '[') + "0" + std::string (64, ']')), "nesting boundary was rejected");
     check (! withinNestingLimit (std::string (65, '[') + "0" + std::string (65, ']')), "over-nested unauthenticated array was accepted");
+    check (! withinNestingLimit (std::string (100000, '['), 8), "pre-auth crash payload was accepted");
+    check (! withinNestingLimit (std::string (100000, '[')), "authenticated crash payload was accepted");
+    check (withinNestingLimit (std::string (8, '[') + "0" + std::string (8, ']'), 8), "handshake nesting boundary was rejected");
+    check (! withinNestingLimit (std::string (9, '[') + "0" + std::string (9, ']'), 8), "over-nested handshake was accepted");
     std::string objects;
     for (int i = 0; i < 65; ++i) objects += "{\"x\":";
     check (! withinNestingLimit (objects + "0" + std::string (65, '}')), "over-nested objects were accepted");

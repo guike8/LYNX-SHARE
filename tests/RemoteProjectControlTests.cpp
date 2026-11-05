@@ -1,5 +1,6 @@
 #include "engine/RemoteProjectControl.h"
 #include "engine/RemoteJsonPatch.h"
+#include "engine/RemoteFileSecurity.h"
 #include "engine/ProjectFile.h"
 #include "core/SessionIds.h"
 #include "core/PluginSubstitutes.h"
@@ -366,6 +367,39 @@ void hostedStateClearIsRejectedBeforeCommit()
     check (stateEdit.channels[0].plugin.state == other, "Nonempty hosted state edit was refused or discarded");
 }
 
+void discoveryCleanup()
+{
+    const auto directory = juce::File::getCurrentWorkingDirectory()
+        .getChildFile ("lynx-control-test-" + remote_files::randomToken());
+    struct Cleanup
+    {
+        juce::File directory;
+        ~Cleanup() { directory.deleteRecursively(); }
+    } cleanup { directory };
+    const auto file = directory.getChildFile ("connection.json");
+    const juce::String record = R"({"token":"owned"})";
+    remote_files::writeDiscovery (file, record);
+    remote_files::removeDiscoveryIfOwned (file, "another process");
+    check (file.existsAsFile(), "Cleanup removed another process's discovery record");
+    remote_files::removeDiscoveryIfOwned (file, "owned");
+    check (! file.exists(), "Cleanup kept its own discovery record");
+
+    // The original crash payload must also be harmless during disable/shutdown.
+    for (const auto size : { 16384, 100000 })
+    {
+        remote_files::writeDiscovery (file, juce::String (std::string ((std::size_t) size, '[')));
+        remote_files::removeDiscoveryIfOwned (file, "owned");
+        check (file.existsAsFile(), "Cleanup removed a malformed discovery record");
+    }
+    // An oversized record with a valid prefix must be rejected rather than parsed
+    // from a truncated buffer. A record at the byte limit remains valid.
+    remote_files::writeDiscovery (file, record + juce::String::repeatedString (" ", 16385 - record.length()));
+    remote_files::removeDiscoveryIfOwned (file, "owned");
+    check (file.existsAsFile(), "Cleanup accepted an oversized discovery record");
+    remote_files::writeDiscovery (file, record + juce::String::repeatedString (" ", 16384 - record.length()));
+    remote_files::removeDiscoveryIfOwned (file, "owned");
+    check (! file.exists(), "Cleanup rejected a discovery record at the byte limit");
+}
 }
 int main()
 {
@@ -377,7 +411,8 @@ int main()
         documentIoPolicy();
         hostedStateClearIsRejectedBeforeCommit();
         knownNativeStatePolicy();
-        std::puts ("Remote JSON Patch, exact project documents and atomic staging tests passed");
+        discoveryCleanup();
+        std::puts ("Remote JSON Patch, exact project documents, atomic staging and discovery cleanup tests passed");
         return 0;
     }
     catch (const std::exception& error)
