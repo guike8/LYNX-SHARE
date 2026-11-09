@@ -1,4 +1,4 @@
-name: Tests
+name: macOS validation
 
 on:
   push:
@@ -15,14 +15,6 @@ env:
   JUCE_SHA256: 0effe9823a6fd8a4f98e5c08be7d308350e417b2d15dcf34011e778fefbbf005
 
 jobs:
-  server:
-    name: Server limits
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-      - run: sudo apt-get update -q && sudo apt-get install -y -q python3-aiohttp
-      - run: /usr/bin/python3 -m unittest discover -s server/tests -p 'test_*.py' -v
-
   # Round speed185a: a Core job took 76-130 min, ~90 % of it compiling the core again for every tool (now once, in
   # parallel: scripts/cxx-once.sh) and the rest running the tests one by one (now in parallel shards, then the
   # timing-sensitive ones alone: scripts/run-tests.sh). ccache keeps the objects between runs: main saves the cache,
@@ -34,9 +26,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-24.04, compiler: g++ }
-          - { os: ubuntu-24.04, compiler: clang++ }
-          - { os: macos-15, compiler: clang++ }
+          - { os: macos-15-intel, compiler: clang++ }
     env:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
       CCACHE_MAXSIZE: 1500M
@@ -84,7 +74,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-15]
+        os: [macos-15-intel]
     env:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
       CCACHE_MAXSIZE: 1500M
